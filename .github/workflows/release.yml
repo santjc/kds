@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test core
+        run: swift run -Xswiftc -warnings-as-errors KDSCoreTests
+      - name: Build universal app
+        env:
+          KDS_VERSION: ${{ github.ref_name }}
+        run: |
+          export KDS_VERSION="${KDS_VERSION#v}"
+          ./Scripts/build-app.sh
+      - name: Package
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent Artifacts/KDS.app Artifacts/KDS.zip
+          cd Artifacts
+          shasum -a 256 KDS.zip > KDS.zip.sha256
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" Artifacts/KDS.zip Artifacts/KDS.zip.sha256 --generate-notes --title "KDS $GITHUB_REF_NAME"

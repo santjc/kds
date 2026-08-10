@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build --product KDS -Xswiftc -warnings-as-errors
+      - name: Test core
+        run: swift run -Xswiftc -warnings-as-errors KDSCoreTests

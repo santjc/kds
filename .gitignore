@@ -1,0 +1,5 @@
+.build/
+Artifacts/
+.DS_Store
+*.xcuserstate
+
