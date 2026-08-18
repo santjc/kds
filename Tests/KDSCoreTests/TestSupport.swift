@@ -15,6 +15,18 @@ struct TestFailure: Error, CustomStringConvertible {
   var description: String { message }
 }
 
+func require<T>(
+  _ value: T?,
+  _ message: String = "Expected a value",
+  file: StaticString = #fileID,
+  line: UInt = #line
+) throws -> T {
+  guard let value else {
+    throw TestFailure(message: "\(file):\(line): \(message)")
+  }
+  return value
+}
+
 func expect(
   _ condition: @autoclosure () -> Bool,
   _ message: String = "Expectation failed",

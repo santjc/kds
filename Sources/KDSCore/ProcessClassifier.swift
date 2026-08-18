@@ -6,13 +6,13 @@ public enum ProcessOverride: String, Codable, Sendable {
 }
 
 public struct ProcessClassifier: Sendable {
-  private static let developmentRuntimes: Set<String> = [
+  public static let developmentRuntimes: Set<String> = [
     "node", "bun", "deno", "python", "python3", "ruby", "php", "java",
     "dotnet", "go", "cargo", "air", "uvicorn", "gunicorn", "puma",
     "rails", "vite", "next", "webpack", "tsx", "ts-node",
   ]
 
-  private static let services: Set<String> = [
+  public static let services: Set<String> = [
     "postgres", "redis-server", "mongod", "mysqld", "mariadbd", "docker",
   ]
 
