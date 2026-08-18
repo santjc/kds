@@ -4,7 +4,9 @@ import Foundation
 @main
 struct TestRunner {
   static func main() async {
-    let tests = lsofParserTests + processClassifierTests + projectResolverTests + integrationTests
+    let tests =
+      lsofParserTests + processClassifierTests + projectResolverTests + integrationTests
+      + psProcessParserTests + memoryClassifierTests + systemMetricsTests
     var failures = 0
 
     for test in tests {
