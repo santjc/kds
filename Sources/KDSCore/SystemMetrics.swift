@@ -10,23 +10,29 @@ public enum MemoryPressure: Sendable, Equatable {
 /// A point-in-time reading of machine-wide CPU and memory usage.
 public struct SystemUsage: Sendable, Equatable {
   public let cpuPercent: Double
+  /// Nil when the accelerator exposes no utilisation counter, which reads as "—".
+  public let gpuPercent: Double?
   public let memoryUsedBytes: UInt64
   public let memoryTotalBytes: UInt64
   public let pressure: MemoryPressure
 
   public init(
     cpuPercent: Double = 0,
+    gpuPercent: Double? = nil,
     memoryUsedBytes: UInt64 = 0,
     memoryTotalBytes: UInt64 = 0,
     pressure: MemoryPressure = .normal
   ) {
     self.cpuPercent = cpuPercent
+    self.gpuPercent = gpuPercent
     self.memoryUsedBytes = memoryUsedBytes
     self.memoryTotalBytes = memoryTotalBytes
     self.pressure = pressure
   }
 
   public var cpuFraction: Double { min(1, max(0, cpuPercent / 100)) }
+
+  public var gpuFraction: Double { min(1, max(0, (gpuPercent ?? 0) / 100)) }
 
   public var memoryFraction: Double {
     guard memoryTotalBytes > 0 else { return 0 }
@@ -70,6 +76,7 @@ public actor HostSystemMetricsSampler: SystemMetricsSampling {
     let memory = Self.readMemory()
     return SystemUsage(
       cpuPercent: cpu,
+      gpuPercent: GPUUtilization.currentPercent(),
       memoryUsedBytes: memory.used,
       memoryTotalBytes: memory.total,
       pressure: Self.readPressure()

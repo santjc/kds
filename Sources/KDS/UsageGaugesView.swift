@@ -5,9 +5,8 @@ struct UsageGaugesView: View {
   @EnvironmentObject private var usageStore: SystemUsageStore
 
   var body: some View {
-    HStack(spacing: 14) {
+    HStack(alignment: .top, spacing: 12) {
       UsageGauge(
-        systemName: "cpu",
         title: "CPU",
         fraction: usageStore.usage.cpuFraction,
         percent: usageStore.usage.cpuPercent,
@@ -16,8 +15,15 @@ struct UsageGaugesView: View {
       )
 
       UsageGauge(
-        systemName: "memorychip",
-        title: "Memory",
+        title: "GPU",
+        fraction: usageStore.usage.gpuFraction,
+        percent: usageStore.usage.gpuPercent,
+        tint: Self.loadTint(for: usageStore.usage.gpuFraction),
+        detail: gpuDetail
+      )
+
+      UsageGauge(
+        title: "RAM",
         fraction: usageStore.usage.memoryFraction,
         percent: usageStore.usage.memoryPercent,
         tint: Self.pressureTint(for: usageStore.usage),
@@ -25,7 +31,14 @@ struct UsageGaugesView: View {
       )
     }
     .padding(.horizontal, MenuMetrics.horizontalPadding)
-    .padding(.bottom, 10)
+    .padding(.bottom, 12)
+  }
+
+  private var gpuDetail: String {
+    guard let percent = usageStore.usage.gpuPercent else {
+      return "GPU utilisation is not reported by this machine"
+    }
+    return "GPU \(Self.percentLabel(percent))"
   }
 
   private var memoryDetail: String {
@@ -59,24 +72,45 @@ struct UsageGaugesView: View {
   static func percentLabel(_ percent: Double) -> String {
     "\(Int(percent.rounded()))%"
   }
+
+  /// The em dash is the honest reading when a counter is unavailable, not a zero.
+  static func percentLabel(_ percent: Double?) -> String {
+    guard let percent else { return "—" }
+    return percentLabel(percent)
+  }
 }
 
 private struct UsageGauge: View {
-  let systemName: String
   let title: String
   let fraction: Double
-  let percent: Double
+  let percent: Double?
   let tint: Color
   let detail: String
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+  init(title: String, fraction: Double, percent: Double?, tint: Color, detail: String) {
+    self.title = title
+    self.fraction = fraction
+    self.percent = percent
+    self.tint = tint
+    self.detail = detail
+  }
+
   var body: some View {
-    HStack(spacing: 6) {
-      Image(systemName: systemName)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.secondary)
-        .frame(width: 14)
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(spacing: 4) {
+        Text(title)
+          // Small text wants a touch of positive tracking to stay legible.
+          .font(.caption2.weight(.semibold))
+          .tracking(0.4)
+          .foregroundStyle(.secondary)
+        Spacer(minLength: 4)
+        // Monospaced digits keep the number from resizing the column on every sample.
+        Text(UsageGaugesView.percentLabel(percent))
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(percent == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+      }
 
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
@@ -88,12 +122,6 @@ private struct UsageGauge: View {
         }
       }
       .frame(height: 6)
-
-      // Monospaced digits keep the number from resizing the bar on every sample.
-      Text(UsageGaugesView.percentLabel(percent))
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.secondary)
-        .frame(width: 32, alignment: .trailing)
     }
     // Critically damped: the value is not gesture-driven, so overshoot would be wrong.
     .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0), value: fraction)

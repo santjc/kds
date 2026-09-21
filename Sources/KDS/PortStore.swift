@@ -17,12 +17,14 @@ final class PortStore: ObservableObject {
   @Published private(set) var errorMessage: String?
   @Published private(set) var actionErrorMessage: String?
   @Published private(set) var survivorPIDs: Set<Int32> = []
+  @Published private(set) var usage: [Int32: ProcessUsage] = [:]
 
   private let source: any PortSource
   private let inspector: any ProcessInspecting
   private let terminator: any ProcessTerminating
   private let classifier: ProcessClassifier
   private let overrides: EndpointOverrideStore
+  private let usageSampler: any ProcessUsageSampling
   private var detailsCache: [Int32: ProcessDetails] = [:]
   private var detailsFingerprints: [Int32: Set<String>] = [:]
   private var survivorPorts: [Int32: Set<UInt16>] = [:]
@@ -55,7 +57,8 @@ final class PortStore: ObservableObject {
       inspector: SystemProcessInspector(),
       terminator: SystemProcessTerminator(),
       classifier: ProcessClassifier(),
-      overrides: EndpointOverrideStore()
+      overrides: EndpointOverrideStore(),
+      usageSampler: RusageProcessUsageSampler()
     )
   }
 
@@ -64,13 +67,15 @@ final class PortStore: ObservableObject {
     inspector: any ProcessInspecting,
     terminator: any ProcessTerminating,
     classifier: ProcessClassifier,
-    overrides: EndpointOverrideStore
+    overrides: EndpointOverrideStore,
+    usageSampler: any ProcessUsageSampling
   ) {
     self.source = source
     self.inspector = inspector
     self.terminator = terminator
     self.classifier = classifier
     self.overrides = overrides
+    self.usageSampler = usageSampler
   }
 
   func startVisibleScanning() {
@@ -150,6 +155,8 @@ final class PortStore: ObservableObject {
           )
         )
       }.sorted(by: Self.sortEndpoints)
+
+      usage = await usageSampler.sample(pids: Array(activePIDs))
 
       survivorPIDs = Set(
         snapshot.compactMap { endpoint in

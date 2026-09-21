@@ -6,7 +6,7 @@ struct TestRunner {
   static func main() async {
     let tests =
       lsofParserTests + processClassifierTests + projectResolverTests + integrationTests
-      + psProcessParserTests + memoryClassifierTests + systemMetricsTests
+      + systemMetricsTests
     var failures = 0
 
     for test in tests {

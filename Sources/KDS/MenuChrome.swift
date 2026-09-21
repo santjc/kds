@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 
 enum MenuMetrics {
-  static let width: CGFloat = 390
+  static let width: CGFloat = 410
   static let horizontalPadding: CGFloat = 12
   static let controlSize: CGFloat = 28
   static let rowHeight: CGFloat = 40
-  static let tabHeight: CGFloat = 32
   static let portWidth: CGFloat = 54
-  static let sizeWidth: CGFloat = 66
+  /// One width for the CPU and RAM columns so the header and every row align.
+  static let metricWidth: CGFloat = 48
 
   /// The panel grows with its content and only scrolls past this point.
   static let maxContentHeight: CGFloat = 420
@@ -45,73 +45,6 @@ struct SelfSizingScrollView<Content: View>: View {
       contentHeight = height
     }
   }
-}
-
-/// Full-width underline tabs. The strip carries a single hairline along its bottom edge;
-/// the selected tab replaces that hairline with a heavier accent segment.
-struct TabBar: View {
-  @Binding var selection: MenuTab
-  @Namespace private var underline
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  var body: some View {
-    HStack(spacing: 0) {
-      ForEach(MenuTab.allCases) { tab in
-        TabBarItem(
-          tab: tab,
-          isSelected: selection == tab,
-          underline: underline
-        ) {
-          selection = tab
-        }
-      }
-    }
-    .background(alignment: .bottom) {
-      Rectangle()
-        .fill(Color.primary.opacity(0.12))
-        .frame(height: 1)
-    }
-    .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: selection)
-  }
-}
-
-private struct TabBarItem: View {
-  let tab: MenuTab
-  let isSelected: Bool
-  let underline: Namespace.ID
-  let select: () -> Void
-
-  @State private var isHovering = false
-
-  var body: some View {
-    Button(action: select) {
-      Text(tab.title)
-        .font(.callout.weight(isSelected ? .semibold : .regular))
-        .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-        .frame(maxWidth: .infinity)
-        .frame(height: MenuMetrics.tabHeight)
-        .background(isHovering && !isSelected ? Color.primary.opacity(0.04) : Color.clear)
-        .overlay(alignment: .bottom) {
-          if isSelected {
-            Rectangle()
-              .fill(Color.accentColor)
-              .frame(height: 2)
-              .matchedGeometryEffect(id: "tabUnderline", in: underline)
-          }
-        }
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { isHovering = $0 }
-    .pointingHandCursor()
-    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-  }
-}
-
-func sectionTitle(_ text: String) -> some View {
-  Text(text)
-    .font(.caption.weight(.semibold))
-    .foregroundStyle(.secondary)
 }
 
 struct IconControlLabel: View {
@@ -200,7 +133,7 @@ struct ErrorBanner: View {
   }
 }
 
-/// A collapsible `Section (n)` header shared by both tabs.
+/// A collapsible `Section (n)` header.
 struct DisclosureHeader: View {
   let title: String
   let count: Int

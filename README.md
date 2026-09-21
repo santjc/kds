@@ -6,27 +6,22 @@ KDS is a lightweight, native macOS menu bar app for reclaiming the resources you
 
 **At a glance**
 
-- Live CPU and memory usage bars in the menu panel.
+- Machine-wide CPU, GPU, and RAM bars across the top of the panel.
 - The panel sizes itself to its content — collapsed sections keep it small, expanding one grows it.
 
-**Servers tab**
+**The server table**
 
 - Finds TCP listeners owned by the current user.
-- Shows port, process, PID, and project directory.
-- Opens or copies `localhost` URLs.
+- One row per listener: port, name, CPU%, RAM%, and a kill button.
+- Per-process CPU and RAM come from `proc_pid_rusage`, sampled as a delta, so CPU is instantaneous and can exceed 100% across cores.
+- There is no per-process GPU column: macOS publishes no public per-PID GPU counter, so GPU is reported machine-wide only.
+- Opens or copies `localhost` URLs from the row menu.
 - Sends `SIGTERM` to one server or a reviewed Kill All selection.
 - Protects system apps, GUI apps, databases, and unknown listeners by default.
 
-**Memory tab**
-
-- Lists the current user's largest memory consumers, grouped into development processes and everything else.
-- Terminates a process from the list; anything outside the development group asks for confirmation first.
-- Protects KDS itself, other users' processes, macOS system paths, and critical processes such as `WindowServer` and `Finder`.
-- Sizes come from `ps` RSS, which counts shared framework pages against every process that maps them, so figures read a little above Activity Monitor's Memory column.
-
 **Throughout**
 
-- Polls only while the menu is open, and only for the tab you are looking at.
+- Polls only while the menu is open.
 - Uses no admin privileges, telemetry, accounts, or runtime dependencies.
 
 ## Requirements
@@ -54,7 +49,7 @@ Build a universal `.app` bundle:
 open Artifacts/KDS.app
 ```
 
-Run the core test suite, including non-destructive real `lsof`, `ps`, and Mach host scans:
+Run the core test suite, including non-destructive real `lsof`, `proc_pid_rusage`, and Mach host scans:
 
 ```sh
 swift run KDSCoreTests
@@ -62,11 +57,11 @@ swift run KDSCoreTests
 
 ## Safety model
 
-KDS executes `/usr/sbin/lsof` and `/bin/ps` directly with fixed arguments, reads CPU and memory through Mach host calls, and calls the Darwin `kill` API directly. It never constructs shell commands or requests `sudo`. There is deliberately no "purge" or "free memory" button: that requires root and reclaims nothing meaningful on modern macOS.
+KDS executes `/usr/sbin/lsof` directly with fixed arguments, reads system CPU and memory through Mach host calls, GPU through the IOKit registry, per-process usage through `proc_pid_rusage`, and calls the Darwin `kill` API directly. It never constructs shell commands or requests `sudo`. There is deliberately no "purge" or "free memory" button: that requires root and reclaims nothing meaningful on modern macOS.
 
 Kill All includes only high-confidence development processes or executables explicitly included by the user. It previews the unique PIDs and ports, sends `SIGTERM`, and offers a separately confirmed `SIGKILL` only for survivors.
 
-KDS is intentionally not sandboxed because a sandboxed app cannot inspect and signal unrelated processes. It filters every list to the current Unix user and revalidates immediately before termination — the PID and port on the Servers tab, the PID and executable path on the Memory tab, so a recycled PID cannot be signalled by mistake.
+KDS is intentionally not sandboxed because a sandboxed app cannot inspect and signal unrelated processes. It filters the list to the current Unix user and revalidates the PID and port immediately before termination, so a recycled PID cannot be signalled by mistake.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation details.
 

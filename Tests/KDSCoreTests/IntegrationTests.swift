@@ -7,12 +7,16 @@ let integrationTests: [TestCase] = [
     try expect(Set(endpoints.map(\.id)).count == endpoints.count)
     try expect(endpoints.allSatisfy { $0.ownerUID == getuid() })
   },
-  TestCase("scans real memory usage and finds itself") {
-    let processes = try await PSProcessMemorySource().snapshot()
-    try expect(!processes.isEmpty)
-    try expect(processes.allSatisfy { $0.ownerUID == getuid() })
-    try expect(Set(processes.map(\.pid)).count == processes.count)
-    try expect(processes.contains { $0.pid == getpid() }, "expected the test process in the list")
+  TestCase("samples real per-process CPU and memory for itself") {
+    let sampler = RusageProcessUsageSampler()
+    _ = await sampler.sample(pids: [getpid()])
+    try await Task.sleep(for: .milliseconds(200))
+    let usage = await sampler.sample(pids: [getpid()])
+
+    let own = try require(usage[getpid()], "expected usage for the test process")
+    try expect(own.residentBytes > 0)
+    try expect(own.cpuPercent >= 0)
+    try expect(own.memoryPercent > 0 && own.memoryPercent <= 100)
   },
   TestCase("samples real CPU and memory") {
     let sampler = HostSystemMetricsSampler()
@@ -24,6 +28,9 @@ let integrationTests: [TestCase] = [
     try expect(usage.memoryUsedBytes > 0)
     try expect(usage.memoryFraction > 0 && usage.memoryFraction <= 1)
     try expect(usage.cpuPercent >= 0 && usage.cpuPercent <= 100)
+    if let gpu = usage.gpuPercent {
+      try expect(gpu >= 0 && gpu <= 100)
+    }
   },
   TestCase("enforces command timeouts") {
     do {

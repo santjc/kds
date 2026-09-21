@@ -1,26 +1,10 @@
 import AppKit
 import SwiftUI
 
-enum MenuTab: String, CaseIterable, Identifiable {
-  case servers
-  case memory
-
-  var id: String { rawValue }
-
-  var title: String {
-    switch self {
-    case .servers: "Servers"
-    case .memory: "Memory"
-    }
-  }
-}
-
 struct KDSMenuView: View {
   @EnvironmentObject private var store: PortStore
-  @EnvironmentObject private var memoryStore: MemoryStore
   @EnvironmentObject private var usageStore: SystemUsageStore
   @EnvironmentObject private var launchAtLogin: LaunchAtLoginController
-  @AppStorage("selectedTab") private var tab: MenuTab = .servers
 
   var body: some View {
     // No fixed height: the panel is as short as its content allows and only the
@@ -28,13 +12,7 @@ struct KDSMenuView: View {
     VStack(spacing: 0) {
       header
       UsageGaugesView()
-      TabBar(selection: $tab)
-
-      switch tab {
-      case .servers: ServersTabView()
-      case .memory: MemoryTabView()
-      }
-
+      ServerTableView()
       Divider()
       footer
     }
@@ -43,25 +21,11 @@ struct KDSMenuView: View {
     .onAppear {
       launchAtLogin.refreshStatus()
       usageStore.start()
-      startScanning(for: tab)
+      store.startVisibleScanning()
     }
     .onDisappear {
       usageStore.stop()
       store.stopVisibleScanning()
-      memoryStore.stopVisibleScanning()
-    }
-    .onChange(of: tab) { newTab in
-      // Only one poller runs at a time, so lsof and ps never overlap.
-      store.stopVisibleScanning()
-      memoryStore.stopVisibleScanning()
-      startScanning(for: newTab)
-    }
-  }
-
-  private func startScanning(for tab: MenuTab) {
-    switch tab {
-    case .servers: store.startVisibleScanning()
-    case .memory: memoryStore.startVisibleScanning()
     }
   }
 
@@ -69,20 +33,13 @@ struct KDSMenuView: View {
     HStack(spacing: 8) {
       Text("KDS")
         .font(.headline)
-      Text(headerSubtitle)
+      Text("\(store.developmentEndpoints.count) dev")
         .font(.caption)
         .foregroundStyle(.secondary)
       Spacer()
     }
     .padding(.horizontal, MenuMetrics.horizontalPadding)
     .frame(height: 38)
-  }
-
-  private var headerSubtitle: String {
-    switch tab {
-    case .servers: "\(store.developmentEndpoints.count) dev"
-    case .memory: "\(memoryStore.processes.count) processes"
-    }
   }
 
   private var footer: some View {
@@ -108,10 +65,7 @@ struct KDSMenuView: View {
 
       Spacer()
 
-      switch tab {
-      case .servers: ServersFooterActions()
-      case .memory: MemoryFooterSummary()
-      }
+      ServerFooterActions()
     }
     .padding(.horizontal, MenuMetrics.horizontalPadding)
     .frame(height: 44)

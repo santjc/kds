@@ -2,7 +2,7 @@ import AppKit
 import KDSCore
 import SwiftUI
 
-struct ServersTabView: View {
+struct ServerTableView: View {
   @EnvironmentObject private var store: PortStore
   @EnvironmentObject private var launchAtLogin: LaunchAtLoginController
   @State private var showsOtherListeners = false
@@ -42,7 +42,8 @@ struct ServersTabView: View {
               .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
 
-            sectionTitle("Dev Servers")
+            ColumnHeader()
+
             if store.developmentEndpoints.isEmpty {
               Text("No development servers detected")
                 .font(.callout)
@@ -83,7 +84,7 @@ struct ServersTabView: View {
   }
 }
 
-struct ServersFooterActions: View {
+struct ServerFooterActions: View {
   @EnvironmentObject private var store: PortStore
   @State private var showsKillPreview = false
 
@@ -123,6 +124,30 @@ struct EmptyStateView: View {
   }
 }
 
+/// Column titles for the table below. Widths come from `MenuMetrics` so the header
+/// and every row stay on the same grid.
+private struct ColumnHeader: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      Text("PORT")
+        .frame(width: MenuMetrics.portWidth, alignment: .leading)
+      Text("NAME")
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Text("CPU")
+        .frame(width: MenuMetrics.metricWidth, alignment: .trailing)
+      Text("RAM")
+        .frame(width: MenuMetrics.metricWidth, alignment: .trailing)
+      // Keeps the titles clear of the row's action controls.
+      Color.clear.frame(width: MenuMetrics.controlSize * 2, height: 1)
+    }
+    .font(.caption2.weight(.semibold))
+    .tracking(0.5)
+    .foregroundStyle(.tertiary)
+    .padding(.horizontal, 6)
+    .accessibilityHidden(true)
+  }
+}
+
 private struct EndpointList: View {
   let endpoints: [DisplayEndpoint]
 
@@ -136,6 +161,30 @@ private struct EndpointList: View {
             .opacity(0.55)
         }
       }
+    }
+  }
+}
+
+/// One metric cell. A missing value reads as an em dash rather than a misleading zero.
+private struct MetricCell: View {
+  let percent: Double?
+  let label: String
+
+  var body: some View {
+    Text(UsageGaugesView.percentLabel(percent))
+      .font(.system(.caption, design: .monospaced))
+      .foregroundStyle(tint)
+      .frame(width: MenuMetrics.metricWidth, alignment: .trailing)
+      .accessibilityLabel(label)
+      .accessibilityValue(UsageGaugesView.percentLabel(percent))
+  }
+
+  private var tint: AnyShapeStyle {
+    guard let percent else { return AnyShapeStyle(.tertiary) }
+    switch percent {
+    case ..<25: return AnyShapeStyle(.secondary)
+    case ..<75: return AnyShapeStyle(Color.orange)
+    default: return AnyShapeStyle(Color.red)
     }
   }
 }
@@ -162,16 +211,13 @@ private struct EndpointRow: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
 
-      Button {
-        openURL()
-      } label: {
-        IconControlLabel(systemName: "arrow.up.forward.app", title: "Open localhost")
-      }
-      .buttonStyle(.borderless)
-      .help("Open localhost")
-      .interactiveIconControl()
+      // No GPU column: macOS exposes no public per-process GPU counter, and a column
+      // of em dashes is only noise. The panel gauge carries the machine-wide figure.
+      MetricCell(percent: usage?.cpuPercent, label: "CPU")
+      MetricCell(percent: usage?.memoryPercent, label: "RAM")
 
       Menu {
+        Button("Open localhost") { openURL() }
         Button("Copy URL") { copyURL() }
         Divider()
         classificationActions
@@ -219,11 +265,12 @@ private struct EndpointRow: View {
     }
   }
 
+  private var usage: ProcessUsage? {
+    store.usage[item.endpoint.pid]
+  }
+
   private var subtitle: String {
-    let process =
-      item.details.projectName == nil
-      ? "PID \(item.endpoint.pid)" : "\(item.endpoint.processName) · PID \(item.endpoint.pid)"
-    return "\(process) · \(item.classification.reason)"
+    "\(item.endpoint.processName) · PID \(item.endpoint.pid)"
   }
 
   @ViewBuilder

@@ -11,7 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct KDSApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var store = PortStore.live()
-  @StateObject private var memoryStore = MemoryStore.live()
   @StateObject private var usageStore = SystemUsageStore()
   @StateObject private var launchAtLogin = LaunchAtLoginController()
 
@@ -19,7 +18,6 @@ struct KDSApp: App {
     MenuBarExtra("Kill Dev Servers", systemImage: "server.rack") {
       KDSMenuView()
         .environmentObject(store)
-        .environmentObject(memoryStore)
         .environmentObject(usageStore)
         .environmentObject(launchAtLogin)
     }
