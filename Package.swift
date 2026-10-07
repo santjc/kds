@@ -11,7 +11,11 @@ let package = Package(
   ],
   targets: [
     .target(name: "KDSCore"),
-    .executableTarget(name: "KDS", dependencies: ["KDSCore"]),
+    .executableTarget(
+      name: "KDS",
+      dependencies: ["KDSCore"],
+      resources: [.copy("Sprites")]
+    ),
     .executableTarget(
       name: "KDSCoreTests",
       dependencies: ["KDSCore"],

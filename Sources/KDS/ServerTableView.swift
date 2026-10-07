@@ -4,13 +4,14 @@ import SwiftUI
 
 struct ServerTableView: View {
   @EnvironmentObject private var store: PortStore
+  @EnvironmentObject private var background: BackgroundStore
   @EnvironmentObject private var launchAtLogin: LaunchAtLoginController
   @State private var showsOtherListeners = false
   @State private var showsForceConfirmation = false
 
   var body: some View {
     Group {
-      if store.endpoints.isEmpty && !store.isScanning {
+      if store.endpoints.isEmpty && background.processes.isEmpty && !store.isScanning {
         EmptyStateView(
           systemName: "checkmark.circle",
           title: "No listeners found",
@@ -42,7 +43,7 @@ struct ServerTableView: View {
               .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
 
-            ColumnHeader()
+            ColumnHeader(leading: "PORT")
 
             if store.developmentEndpoints.isEmpty {
               Text("No development servers detected")
@@ -64,6 +65,8 @@ struct ServerTableView: View {
                 EndpointList(endpoints: store.otherEndpoints)
               }
             }
+
+            BackgroundSection()
           }
           .padding(.horizontal, 10)
           .padding(.vertical, 8)
@@ -125,11 +128,13 @@ struct EmptyStateView: View {
 }
 
 /// Column titles for the table below. Widths come from `MenuMetrics` so the header
-/// and every row stay on the same grid.
-private struct ColumnHeader: View {
+/// and every row stay on the same grid; only the leading column changes per section.
+struct ColumnHeader: View {
+  let leading: String
+
   var body: some View {
     HStack(spacing: 8) {
-      Text("PORT")
+      Text(leading)
         .frame(width: MenuMetrics.portWidth, alignment: .leading)
       Text("NAME")
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -166,7 +171,7 @@ private struct EndpointList: View {
 }
 
 /// One metric cell. A missing value reads as an em dash rather than a misleading zero.
-private struct MetricCell: View {
+struct MetricCell: View {
   let percent: Double?
   let label: String
 

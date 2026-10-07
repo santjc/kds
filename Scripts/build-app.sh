@@ -24,6 +24,8 @@ fi
     "$project_dir/.build/arm64-apple-macosx/release/KDS" \
     "$project_dir/.build/x86_64-apple-macosx/release/KDS" \
     -output "$app_dir/Contents/MacOS/KDS"
+/bin/mkdir -p "$app_dir/Contents/Resources"
+/bin/cp -R "$project_dir/Sources/KDS/Sprites" "$app_dir/Contents/Resources/Sprites"
 /usr/bin/codesign --force --sign - --options runtime --timestamp=none "$app_dir"
 /usr/bin/codesign --verify --strict --verbose=2 "$app_dir"
 /usr/bin/lipo -info "$app_dir/Contents/MacOS/KDS"

@@ -6,7 +6,9 @@ KDS is a lightweight, native macOS menu bar app for reclaiming the resources you
 
 **At a glance**
 
+- The menu bar mascot changes mood with CPU load — idle, active, busy, hot, very hot, critical — and animates faster as load climbs. Reduce Motion holds a still frame per mood.
 - Machine-wide CPU, GPU, and RAM bars across the top of the panel.
+- Left click opens the panel; right click (or control-click) opens Launch at Login and Quit.
 - The panel sizes itself to its content — collapsed sections keep it small, expanding one grows it.
 
 **The server table**
@@ -19,9 +21,15 @@ KDS is a lightweight, native macOS menu bar app for reclaiming the resources you
 - Sends `SIGTERM` to one server or a reviewed Kill All selection.
 - Protects system apps, GUI apps, databases, and unknown listeners by default.
 
+**Background processes**
+
+- Lists what coding agents and browser automation leave running: headless or automated Chrome (Playwright, Puppeteer), `agent-browser`, MCP servers, Claude Code and Codex sessions, and detached processes started from an agent's worktree.
+- Each row shows how long ago it started (`5m`, `3h`, `2d`, `1w`), its CPU and RAM summed over its process tree, and who owns it: a live agent, a parent, or nobody (detached).
+- Clean Up terminates only what no live agent is using. Agent sessions, and anything they still own, need a confirmation and are never bulk-killed.
+
 **Throughout**
 
-- Polls only while the menu is open.
+- Polls only while the menu is open. The menu bar icon samples CPU alone, every two seconds.
 - Uses no admin privileges, telemetry, accounts, or runtime dependencies.
 
 ## Requirements
@@ -42,6 +50,12 @@ swift build --product KDS
 swift run KDS
 ```
 
+Re-cut the mascot frames after editing the design boards in `Resources/Mascot`:
+
+```sh
+swift Scripts/cut-sprites.swift Resources/Mascot Sources/KDS/Sprites
+```
+
 Build a universal `.app` bundle:
 
 ```sh
@@ -57,7 +71,7 @@ swift run KDSCoreTests
 
 ## Safety model
 
-KDS executes `/usr/sbin/lsof` directly with fixed arguments, reads system CPU and memory through Mach host calls, GPU through the IOKit registry, per-process usage through `proc_pid_rusage`, and calls the Darwin `kill` API directly. It never constructs shell commands or requests `sudo`. There is deliberately no "purge" or "free memory" button: that requires root and reclaims nothing meaningful on modern macOS.
+KDS executes `/usr/sbin/lsof` directly with fixed arguments, reads system CPU and memory through Mach host calls, GPU through the IOKit registry, per-process usage through `proc_pid_rusage`, the process table and argv through `sysctl`, and calls the Darwin `kill` API directly. It never constructs shell commands or requests `sudo`. There is deliberately no "purge" or "free memory" button: that requires root and reclaims nothing meaningful on modern macOS.
 
 Kill All includes only high-confidence development processes or executables explicitly included by the user. It previews the unique PIDs and ports, sends `SIGTERM`, and offers a separately confirmed `SIGKILL` only for survivors.
 

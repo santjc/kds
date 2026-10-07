@@ -1,26 +1,23 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  private var statusItem: StatusItemController?
+
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
+    statusItem = StatusItemController()
   }
 }
 
 @main
 struct KDSApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-  @StateObject private var store = PortStore.live()
-  @StateObject private var usageStore = SystemUsageStore()
-  @StateObject private var launchAtLogin = LaunchAtLoginController()
 
+  // The menu bar item is AppKit (`StatusItemController`): SwiftUI's MenuBarExtra has no
+  // right-click. An app still needs one scene, and an empty Settings scene shows nothing.
   var body: some Scene {
-    MenuBarExtra("Kill Dev Servers", systemImage: "server.rack") {
-      KDSMenuView()
-        .environmentObject(store)
-        .environmentObject(usageStore)
-        .environmentObject(launchAtLogin)
-    }
-    .menuBarExtraStyle(.window)
+    Settings { EmptyView() }
   }
 }

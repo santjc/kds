@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import KDSCore
 
 let integrationTests: [TestCase] = [
@@ -17,6 +18,15 @@ let integrationTests: [TestCase] = [
     try expect(own.residentBytes > 0)
     try expect(own.cpuPercent >= 0)
     try expect(own.memoryPercent > 0 && own.memoryPercent <= 100)
+  },
+  TestCase("reads the real process table, argv included, and finds itself") {
+    let table = await SysctlProcessTable().snapshot()
+    let own = try require(table.first { $0.pid == getpid() }, "expected the test process")
+    try expect(own.parentPID > 0)
+    try expect(own.arguments.first?.contains("KDSCoreTests") == true)
+    try expect(own.startDate < Date() && own.startDate > Date().addingTimeInterval(-3600))
+    try expect(table.allSatisfy { $0.ownerUID == getuid() })
+    _ = BackgroundProcessClassifier().classify(table)
   },
   TestCase("samples real CPU and memory") {
     let sampler = HostSystemMetricsSampler()

@@ -96,7 +96,7 @@ public actor HostSystemMetricsSampler: SystemMetricsSampling {
     return min(100, max(0, Double(deltaBusy) / Double(deltaTotal) * 100))
   }
 
-  private static func readCPUTicks() -> CPUTicks? {
+  static func readCPUTicks() -> CPUTicks? {
     var cpuCount: natural_t = 0
     var info: processor_info_array_t?
     var infoCount: mach_msg_type_number_t = 0

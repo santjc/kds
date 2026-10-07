@@ -1,8 +1,8 @@
-import AppKit
 import SwiftUI
 
 struct KDSMenuView: View {
   @EnvironmentObject private var store: PortStore
+  @EnvironmentObject private var background: BackgroundStore
   @EnvironmentObject private var usageStore: SystemUsageStore
   @EnvironmentObject private var launchAtLogin: LaunchAtLoginController
 
@@ -22,10 +22,12 @@ struct KDSMenuView: View {
       launchAtLogin.refreshStatus()
       usageStore.start()
       store.startVisibleScanning()
+      background.startVisibleScanning()
     }
     .onDisappear {
       usageStore.stop()
       store.stopVisibleScanning()
+      background.stopVisibleScanning()
     }
   }
 
@@ -33,7 +35,7 @@ struct KDSMenuView: View {
     HStack(spacing: 8) {
       Text("KDS")
         .font(.headline)
-      Text("\(store.developmentEndpoints.count) dev")
+      Text(headerSubtitle)
         .font(.caption)
         .foregroundStyle(.secondary)
       Spacer()
@@ -42,29 +44,15 @@ struct KDSMenuView: View {
     .frame(height: 38)
   }
 
+  private var headerSubtitle: String {
+    let servers = "\(store.developmentEndpoints.count) dev"
+    guard !background.processes.isEmpty else { return servers }
+    return "\(servers) · \(background.processes.count) background"
+  }
+
   private var footer: some View {
     HStack {
-      Menu {
-        Toggle(
-          "Launch at Login",
-          isOn: Binding(
-            get: { launchAtLogin.isEnabled },
-            set: { launchAtLogin.setEnabled($0) }
-          )
-        )
-        Divider()
-        Button("Quit KDS") { NSApp.terminate(nil) }
-      } label: {
-        IconControlLabel(systemName: "gearshape", title: "Settings")
-      }
-      .menuStyle(.borderlessButton)
-      .menuIndicator(.hidden)
-      .fixedSize()
-      .help("Settings")
-      .interactiveIconControl()
-
       Spacer()
-
       ServerFooterActions()
     }
     .padding(.horizontal, MenuMetrics.horizontalPadding)
