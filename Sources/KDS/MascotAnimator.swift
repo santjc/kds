@@ -10,6 +10,9 @@ import KDSCore
 final class MascotAnimator: ObservableObject {
   @Published private(set) var image: NSImage
   @Published private(set) var level: CPULoadLevel = .idle
+  /// A pinned mood that wins over CPU. Only the debug build's app menu sets it, to
+  /// preview every animation without loading the machine.
+  @Published private(set) var pinnedLevel: CPULoadLevel?
 
   private let sampler = CPULoadSampler()
   private let frames: [CPULoadLevel: [NSImage]]
@@ -38,7 +41,9 @@ final class MascotAnimator: ObservableObject {
       while !Task.isCancelled {
         guard let self else { return }
         let percent = await self.sampler.sample()
-        self.apply(CPULoadLevel.level(for: percent, previous: self.level))
+        if self.pinnedLevel == nil {
+          self.apply(CPULoadLevel.level(for: percent, previous: self.level))
+        }
         do {
           try await Task.sleep(for: .seconds(2))
         } catch {
@@ -46,6 +51,12 @@ final class MascotAnimator: ObservableObject {
         }
       }
     }
+  }
+
+  /// Pins a mood, or returns to following CPU with `nil`.
+  func pin(_ level: CPULoadLevel?) {
+    pinnedLevel = level
+    if let level { apply(level) }
   }
 
   private func apply(_ newLevel: CPULoadLevel) {
@@ -88,7 +99,7 @@ final class MascotAnimator: ObservableObject {
 
 enum MascotSprites {
   /// Point size of every frame; `Scripts/cut-sprites.swift` renders 1x and 2x to match.
-  static let size = NSSize(width: 26, height: 22)
+  static let size = NSSize(width: 24, height: 22)
 
   static var fallback: NSImage {
     let image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "KDS")!

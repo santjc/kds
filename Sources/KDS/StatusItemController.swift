@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import KDSCore
 import SwiftUI
 
 /// The menu bar item. Left click toggles the panel; right click (or control-click) opens
@@ -53,6 +54,11 @@ final class StatusItemController: NSObject {
     launch.state = launchAtLogin.isEnabled ? .on : .off
     menu.addItem(launch)
 
+    #if DEBUG
+      menu.addItem(.separator())
+      menu.addItem(moodMenuItem())
+    #endif
+
     menu.addItem(.separator())
     menu.addItem(
       NSMenuItem(title: "Quit KDS", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -67,6 +73,38 @@ final class StatusItemController: NSObject {
   @objc private func toggleLaunchAtLogin() {
     launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
   }
+
+  #if DEBUG
+    /// Debug builds only: pin the mascot to a mood to check its animation.
+    private func moodMenuItem() -> NSMenuItem {
+      let submenu = NSMenu()
+      let automatic = NSMenuItem(title: "Automatic (CPU)", action: #selector(pinMood), keyEquivalent: "")
+      automatic.target = self
+      automatic.tag = -1
+      automatic.state = mascot.pinnedLevel == nil ? .on : .off
+      submenu.addItem(automatic)
+      submenu.addItem(.separator())
+
+      for level in CPULoadLevel.allCases {
+        let item = NSMenuItem(
+          title: "\(level.spriteName.replacingOccurrences(of: "_", with: " ").capitalized) "
+            + "(\(Int(level.lowerBound))%+)",
+          action: #selector(pinMood), keyEquivalent: "")
+        item.target = self
+        item.tag = level.rawValue
+        item.state = mascot.pinnedLevel == level ? .on : .off
+        submenu.addItem(item)
+      }
+
+      let item = NSMenuItem(title: "Mascot Mood", action: nil, keyEquivalent: "")
+      item.submenu = submenu
+      return item
+    }
+
+    @objc private func pinMood(_ sender: NSMenuItem) {
+      mascot.pin(CPULoadLevel(rawValue: sender.tag))
+    }
+  #endif
 
   // MARK: - Panel
 

@@ -1,34 +1,34 @@
 #!/usr/bin/env swift
-// Cuts the presentation spritesheets for the menu bar mascot into template-ready frames.
+// Cuts the menu bar mascot's spritesheets into template-ready frames.
 //
 //   swift Scripts/cut-sprites.swift <sheets-dir> <output-dir>
 //
-// Each sheet is a design board: a title, a caption, one row of frames, and a numeral
-// under every frame. The cutter finds the heads (the large ink blobs), assigns every
-// other ink blob between the caption and the numerals to its nearest head, and renders
-// each frame onto a fixed canvas.
+// Each sheet `lomi_<state>.png` is an evenly spaced grid of frames, read row by row.
 //
-// Frames are normalised per state by face width (the bottom of the head), not by bounding
-// box: the hotter states grow taller hair and fly droplets, and scaling those to fit would
-// shrink the face and make the icon visibly jump between states. Within a state, every
-// frame shares one anchor, so per-frame shake and bounce survive the cut.
+// Every frame is anchored on its own eyes: the sheets are not laid out on an exact grid,
+// so anchoring on the cell would turn layout slop into a jitter nobody drew. The
+// animation lives in the hair, which moves around the fixed eyes.
 //
-// Output alpha is ink: black is opaque, white is clear. That is what a template image
-// needs; the face reads as a cut-out and the menu bar tints the rest.
+// Each state then fills the canvas: the union of its frames' ink, measured around the
+// eyes, is scaled to the largest size that fits and centred. Frames within a state share
+// that scale and position, so the animation never wobbles in size.
+//
+// Output alpha is ink: black is opaque, white and transparent are clear. That is what a
+// template image needs; the face reads as a cut-out and the menu bar tints the rest.
 
 import AppKit
 
-/// State name and the frame count printed on its board.
-let states: [(name: String, frames: Int)] = [
-  ("idle", 4), ("active", 4), ("busy", 6), ("hot", 6), ("very_hot", 8), ("critical", 8),
+/// State name, then its grid as columns × rows.
+let states: [(name: String, columns: Int, rows: Int)] = [
+  ("idle", 2, 2), ("active", 2, 2), ("busy", 3, 2), ("hot", 3, 2), ("very_hot", 4, 2),
+  ("critical", 4, 2),
 ]
 
 /// Canvas in points: the full 22pt menu bar height, so the mascot reads at a glance.
-/// The room above the hair is for the droplets the hotter states throw.
-let canvasWidth = 26.0
+let canvasWidth = 24.0
 let canvasHeight = 22.0
-let faceWidthPoints = 16.5
-let faceBottomPoints = 20.6
+/// Breathing room kept clear at every edge.
+let margin = 0.25
 
 struct Bitmap {
   let width: Int
@@ -60,15 +60,13 @@ struct Bitmap {
 
 struct Box {
   var minX: Int, minY: Int, maxX: Int, maxY: Int
-  var width: Int { maxX - minX + 1 }
-  var height: Int { maxY - minY + 1 }
   var midX: Double { Double(minX + maxX) / 2 }
   var midY: Double { Double(minY + maxY) / 2 }
 }
 
 struct Component {
   var box: Box
-  var pixels: [Int]
+  var area: Int
 }
 
 func components(of bitmap: Bitmap, threshold: Double) -> [Component] {
@@ -81,10 +79,10 @@ func components(of bitmap: Bitmap, threshold: Double) -> [Component] {
     guard bitmap.ink(start % bitmap.width, start / bitmap.width) > threshold else { continue }
 
     var stack = [start]
-    var pixels: [Int] = []
+    var area = 0
     var box = Box(minX: .max, minY: .max, maxX: .min, maxY: .min)
     while let index = stack.popLast() {
-      pixels.append(index)
+      area += 1
       let x = index % bitmap.width
       let y = index / bitmap.width
       box.minX = min(box.minX, x)
@@ -103,35 +101,68 @@ func components(of bitmap: Bitmap, threshold: Double) -> [Component] {
         }
       }
     }
-    result.append(Component(box: box, pixels: pixels))
+    result.append(Component(box: box, area: area))
   }
   return result
 }
 
-func median(_ values: [Double]) -> Double {
-  let sorted = values.sorted()
-  return sorted[sorted.count / 2]
+/// One frame as measured on its sheet, in sheet pixels.
+struct Frame {
+  let cell: CGRect
+  /// Every ink blob in the cell, unioned.
+  let ink: Box
+  let eyeCentre: CGPoint
 }
 
-/// Width of the head across its lower third: the face, which every state draws the same.
-func faceWidth(of head: Component, in bitmap: Bitmap) -> Double {
-  let floorY = head.box.maxY - head.box.height / 3
-  var widest = 0
-  var rows: [Int: (Int, Int)] = [:]
-  for index in head.pixels {
-    let x = index % bitmap.width
-    let y = index / bitmap.width
-    guard y >= floorY else { continue }
-    let row = rows[y] ?? (x, x)
-    rows[y] = (min(row.0, x), max(row.1, x))
+struct Sheet {
+  let name: String
+  let bitmap: Bitmap
+  let frames: [Frame]
+}
+
+func measure(name: String, columns: Int, rows: Int, file: URL) -> Sheet {
+  let image = NSImage(contentsOf: file)!.cgImage(forProposedRect: nil, context: nil, hints: nil)!
+  let bitmap = Bitmap(cgImage: image)
+  let blobs = components(of: bitmap, threshold: 0.5).filter { $0.area > 12 }
+  let cellWidth = Double(bitmap.width) / Double(columns)
+  let cellHeight = Double(bitmap.height) / Double(rows)
+
+  var frames: [Frame] = []
+  for row in 0..<rows {
+    for column in 0..<columns {
+      let cell = CGRect(
+        x: Double(column) * cellWidth, y: Double(row) * cellHeight, width: cellWidth,
+        height: cellHeight)
+      let inCell = blobs.filter { cell.contains(CGPoint(x: $0.box.midX, y: $0.box.midY)) }
+        .sorted { $0.area > $1.area }
+      guard let hair = inCell.first else {
+        print("✗ \(name) frame \(frames.count): empty cell")
+        exit(1)
+      }
+      // The eyes are the two largest blobs below the middle of the hair.
+      let eyes = inCell.dropFirst().filter { $0.box.midY > hair.box.midY }.prefix(2)
+      guard eyes.count == 2 else {
+        print("✗ \(name) frame \(frames.count): could not find both eyes")
+        exit(1)
+      }
+      let left = eyes.min { $0.box.midX < $1.box.midX }!
+      let right = eyes.max { $0.box.midX < $1.box.midX }!
+      let ink = inCell.dropFirst().reduce(hair.box) { union, blob in
+        Box(
+          minX: min(union.minX, blob.box.minX), minY: min(union.minY, blob.box.minY),
+          maxX: max(union.maxX, blob.box.maxX), maxY: max(union.maxY, blob.box.maxY))
+      }
+      frames.append(
+        Frame(
+          cell: cell,
+          ink: ink,
+          eyeCentre: CGPoint(
+            x: (left.box.midX + right.box.midX) / 2, y: (left.box.midY + right.box.midY) / 2)
+        ))
+    }
   }
-  for (_, span) in rows { widest = max(widest, span.1 - span.0 + 1) }
-  return Double(widest)
-}
 
-func png(from context: CGContext) -> Data {
-  let rep = NSBitmapImageRep(cgImage: context.makeImage()!)
-  return rep.representation(using: .png, properties: [:])!
+  return Sheet(name: name, bitmap: bitmap, frames: frames)
 }
 
 let arguments = CommandLine.arguments
@@ -143,80 +174,64 @@ let sheetsDirectory = URL(fileURLWithPath: arguments[1])
 let outputDirectory = URL(fileURLWithPath: arguments[2])
 try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-let sheetFiles = FileManager.default.enumerator(at: sheetsDirectory, includingPropertiesForKeys: nil)!
-  .compactMap { $0 as? URL }
-  .filter { $0.pathExtension == "png" }
-
-for (state, frameCount) in states {
-  guard let file = sheetFiles.first(where: { $0.lastPathComponent == "lomi_cpu_\(state)_spritesheet.png" })
-  else {
-    print("✗ \(state): no sheet")
+let sheets = states.map { state -> Sheet in
+  let file = sheetsDirectory.appendingPathComponent("lomi_\(state.name).png")
+  guard FileManager.default.fileExists(atPath: file.path) else {
+    print("✗ \(state.name): no sheet at \(file.path)")
     exit(1)
   }
-  let image = NSImage(contentsOf: file)!.cgImage(forProposedRect: nil, context: nil, hints: nil)!
-  let bitmap = Bitmap(cgImage: image)
-  // A blob touching the right edge is a sliver of the neighbouring board.
-  let blobs = components(of: bitmap, threshold: 0.06).filter { $0.box.maxX < bitmap.width - 2 }
+  return measure(name: state.name, columns: state.columns, rows: state.rows, file: file)
+}
 
-  let heads = Array(blobs.sorted { $0.pixels.count > $1.pixels.count }.prefix(frameCount))
-    .sorted { $0.box.minX < $1.box.minX }
-  let headHeight = median(heads.map { Double($0.box.height) })
-  let headTop = median(heads.map { Double($0.box.minY) })
-  let headBottom = median(heads.map { Double($0.box.maxY) })
+/// Where a state's frames land: its ink, measured around each frame's eyes and unioned
+/// over all frames, scaled to fit the canvas and centred in it.
+struct Placement {
+  let pixelsPerSource: Double  // canvas points per sheet pixel
+  let eyeX: Double  // eye centre in canvas points, from the left
+  let eyeY: Double  // eye centre in canvas points, from the top
+}
 
-  // Caption text sits well above the hair; numerals sit well below the chin. Droplets
-  // and motion marks live in between.
-  let bandTop = headTop - headHeight * 0.5
-  let bandBottom = headBottom + headHeight * 0.2
-  var frames = heads.map { [$0] }
-  for blob in blobs where !heads.contains(where: { $0.pixels.first == blob.pixels.first }) {
-    guard blob.box.midY > bandTop, blob.box.midY < bandBottom else { continue }
-    // The hairline dividing one board from the next is tall and a few pixels wide.
-    guard !(blob.box.height > Int(headHeight / 2) && blob.box.width < 8) else { continue }
-    let nearest = heads.indices.min { abs(heads[$0].box.midX - blob.box.midX) < abs(heads[$1].box.midX - blob.box.midX) }!
-    frames[nearest].append(blob)
+func placement(for sheet: Sheet) -> Placement {
+  var left = 0.0
+  var right = 0.0
+  var up = 0.0
+  var down = 0.0
+  for frame in sheet.frames {
+    let eye = frame.eyeCentre
+    left = max(left, eye.x - Double(frame.ink.minX))
+    right = max(right, Double(frame.ink.maxX + 1) - eye.x)
+    up = max(up, eye.y - Double(frame.ink.minY))
+    down = max(down, Double(frame.ink.maxY + 1) - eye.y)
   }
+  let scale = min(
+    (canvasWidth - 2 * margin) / (left + right), (canvasHeight - 2 * margin) / (up + down))
+  return Placement(
+    pixelsPerSource: scale,
+    eyeX: (canvasWidth - (left + right) * scale) / 2 + left * scale,
+    eyeY: (canvasHeight - (up + down) * scale) / 2 + up * scale)
+}
 
-  let scale = faceWidthPoints / median(heads.map { faceWidth(of: $0, in: bitmap) })
-  let anchorBottom = headBottom
-
-  // Frames sit on a regular grid; a head's offset from its slot is the animation's shake,
-  // so anchor each frame to its fitted slot, not to its own head.
-  let centres = heads.map(\.box.midX)
-  let meanIndex = Double(centres.count - 1) / 2
-  let meanCentre = centres.reduce(0, +) / Double(centres.count)
-  var covariance = 0.0
-  var variance = 0.0
-  for (index, centre) in centres.enumerated() {
-    let offset = Double(index) - meanIndex
-    covariance += offset * (centre - meanCentre)
-    variance += offset * offset
-  }
-  let pitch = covariance / variance
-
-  for (frameIndex, parts) in frames.enumerated() {
-    let anchorX = meanCentre + (Double(frameIndex) - meanIndex) * pitch
-
-    // The frame's ink as a black image whose alpha is the ink, sized to the whole sheet so
-    // source coordinates map straight through one transform.
-    var buffer = [UInt8](repeating: 0, count: bitmap.width * bitmap.height * 4)
-    for part in parts {
-      // Pad each blob by its anti-aliased fringe, which falls below the threshold.
-      let pad = 2
-      for y in max(0, part.box.minY - pad)...min(bitmap.height - 1, part.box.maxY + pad) {
-        for x in max(0, part.box.minX - pad)...min(bitmap.width - 1, part.box.maxX + pad) {
-          let alpha = UInt8((bitmap.ink(x, y) * 255).rounded())
-          buffer[(y * bitmap.width + x) * 4 + 3] = max(buffer[(y * bitmap.width + x) * 4 + 3], alpha)
-        }
+for sheet in sheets {
+  for (index, frame) in sheet.frames.enumerated() {
+    // Only this cell's pixels, so a neighbour's sparks never bleed in.
+    let cell = frame.cell.integral
+    var buffer = [UInt8](repeating: 0, count: Int(cell.width) * Int(cell.height) * 4)
+    for y in Int(cell.minY)..<min(Int(cell.maxY), sheet.bitmap.height) {
+      for x in Int(cell.minX)..<min(Int(cell.maxX), sheet.bitmap.width) {
+        let local = ((y - Int(cell.minY)) * Int(cell.width) + (x - Int(cell.minX))) * 4
+        buffer[local + 3] = UInt8((sheet.bitmap.ink(x, y) * 255).rounded())
       }
     }
     let inkImage = buffer.withUnsafeMutableBytes { bytes in
       CGContext(
-        data: bytes.baseAddress, width: bitmap.width, height: bitmap.height, bitsPerComponent: 8,
-        bytesPerRow: bitmap.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        data: bytes.baseAddress, width: Int(cell.width), height: Int(cell.height),
+        bitsPerComponent: 8, bytesPerRow: Int(cell.width) * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
     }
 
+    let origin = frame.eyeCentre
+    let place = placement(for: sheet)
     for multiplier in [1, 2] {
       let pixelWidth = Int(canvasWidth) * multiplier
       let pixelHeight = Int(canvasHeight) * multiplier
@@ -226,21 +241,22 @@ for (state, frameCount) in states {
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
       context.interpolationQuality = .high
 
-      let pixelsPerSource = scale * Double(multiplier)
+      let pixelsPerSource = place.pixelsPerSource * Double(multiplier)
+      let left = place.eyeX * Double(multiplier) - (origin.x - cell.minX) * pixelsPerSource
+      let top = place.eyeY * Double(multiplier) - (origin.y - cell.minY) * pixelsPerSource
+      let drawnHeight = cell.height * pixelsPerSource
       // CoreGraphics is bottom-up; the sheet maths above is top-down.
-      let originX = Double(pixelWidth) / 2 - anchorX * pixelsPerSource
-      let originYFromTop = faceBottomPoints * Double(multiplier) - (anchorBottom + 1) * pixelsPerSource
-      let drawnHeight = Double(bitmap.height) * pixelsPerSource
       context.draw(
         inkImage,
         in: CGRect(
-          x: originX, y: Double(pixelHeight) - originYFromTop - drawnHeight,
-          width: Double(bitmap.width) * pixelsPerSource, height: drawnHeight))
+          x: left, y: Double(pixelHeight) - top - drawnHeight,
+          width: cell.width * pixelsPerSource, height: drawnHeight))
 
       let suffix = multiplier == 1 ? "" : "@\(multiplier)x"
-      let name = "\(state)-\(frameIndex)\(suffix).png"
-      try png(from: context).write(to: outputDirectory.appendingPathComponent(name))
+      let data = NSBitmapImageRep(cgImage: context.makeImage()!)
+        .representation(using: .png, properties: [:])!
+      try data.write(to: outputDirectory.appendingPathComponent("\(sheet.name)-\(index)\(suffix).png"))
     }
   }
-  print("✓ \(state): \(frames.count) frames, \(frames.map(\.count).reduce(0, +) - frames.count) satellite blobs")
+  print("✓ \(sheet.name): \(sheet.frames.count) frames")
 }

@@ -50,7 +50,7 @@ swift build --product KDS
 swift run KDS
 ```
 
-Re-cut the mascot frames after editing the design boards in `Resources/Mascot`:
+Re-cut the mascot frames after editing the spritesheets in `Resources/Mascot`:
 
 ```sh
 swift Scripts/cut-sprites.swift Resources/Mascot Sources/KDS/Sprites
