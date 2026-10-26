@@ -43,12 +43,11 @@ public struct BackgroundProcess: Identifiable, Sendable, Hashable {
 
   public var id: String { "\(pid):\(startDate.timeIntervalSince1970)" }
 
-  /// Kill All only takes what nobody is using: never an agent session, never anything
-  /// an agent session still owns.
+  /// Clean Up only takes what nothing is using: detached processes whose parent is gone.
+  /// Never an agent session, never anything an agent owns, and never something with a
+  /// live parent — a headless browser under a running `playwright test` is in use.
   public var isKillAllEligible: Bool {
-    guard kind != .agentSession else { return false }
-    if case .agent = ownership { return false }
-    return true
+    kind != .agentSession && ownership == .detached
   }
 
   public init(
@@ -83,48 +82,26 @@ public struct BackgroundProcessClassifier: Sendable {
 
   /// Groups the process table into rows: one per matched process tree, oldest first.
   public func classify(_ table: [ProcessSnapshot]) -> [BackgroundProcess] {
-    let byPID = Dictionary(table.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
-    var children: [Int32: [Int32]] = [:]
-    for process in table { children[process.parentPID, default: []].append(process.pid) }
+    let tree = ProcessTree(table)
 
     var matches: [Int32: Match] = [:]
     for process in table where process.ownerUID == currentUID && process.pid != ownPID {
       if let match = Self.match(process) { matches[process.pid] = match }
     }
 
-    func ancestors(of pid: Int32) -> [Int32] {
-      var chain: [Int32] = []
-      var seen: Set<Int32> = [pid]
-      var current = byPID[pid]?.parentPID
-      while let parent = current, parent > 1, seen.insert(parent).inserted {
-        chain.append(parent)
-        current = byPID[parent]?.parentPID
-      }
-      return chain
-    }
-
     // A match folds into the top-most ancestor of the same kind: `npm exec x-mcp` and
     // the `node x-mcp` it spawns are one server, not two.
     var rootOf: [Int32: Int32] = [:]
     for (pid, match) in matches {
-      rootOf[pid] = ancestors(of: pid).last { matches[$0]?.kind == match.kind } ?? pid
+      rootOf[pid] = tree.ancestors(of: pid).last { matches[$0]?.kind == match.kind } ?? pid
     }
     let roots = Set(rootOf.values)
 
     return roots.compactMap { root -> BackgroundProcess? in
-      guard let process = byPID[root], let match = matches[root] else { return nil }
+      guard let process = tree.byPID[root], let match = matches[root] else { return nil }
 
       let folded = rootOf.filter { $0.value == root }.map(\.key)
-      var usage: [Int32] = []
-      var queue = [root]
-      while let pid = queue.popLast() {
-        usage.append(pid)
-        for child in children[pid] ?? [] where !roots.contains(child) {
-          queue.append(child)
-        }
-      }
-
-      let ownerAgent = ancestors(of: root).lazy.compactMap { pid in
+      let ownerAgent = tree.ancestors(of: root).lazy.compactMap { pid in
         matches[pid].flatMap { $0.kind == .agentSession ? $0.name : nil }
       }.first
       let ownership: BackgroundOwnership =
@@ -135,7 +112,8 @@ public struct BackgroundProcessClassifier: Sendable {
       return BackgroundProcess(
         kind: match.kind, name: match.name, detail: match.detail, pid: root,
         startDate: process.startDate, ownership: ownership,
-        terminationPIDs: folded.sorted(), usagePIDs: usage.sorted())
+        terminationPIDs: folded.sorted(),
+        usagePIDs: tree.subtree(of: root, stoppingAt: roots.subtracting([root])))
     }
     .sorted {
       if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
@@ -173,15 +151,20 @@ public struct BackgroundProcessClassifier: Sendable {
     // Chromium helpers (renderer, GPU, network) are part of their browser's row.
     if arguments.contains(where: { $0.hasPrefix("--type=") }) { return nil }
 
-    if executable == "claude" || commandLine.contains("@anthropic-ai/claude-code") {
+    // Identity comes from the executable, or the script an interpreter runs — never from
+    // any argument, or `grep agent-browser` would be a browser KDS offers to kill.
+    let script = script(of: process)?.lowercased()
+    if executable == "claude" || script?.contains("@anthropic-ai/claude-code/") == true {
       return Match(kind: .agentSession, name: "Claude Code", detail: "")
     }
-    if executable == "codex" || commandLine.contains("@openai/codex") {
+    if executable == "codex" || script?.contains("@openai/codex/") == true {
       let detail = arguments.contains("app-server") ? "app-server" : ""
       return Match(kind: .agentSession, name: "Codex", detail: detail)
     }
 
-    if executable == "agent-browser" || commandLine.contains("agent-browser") {
+    if executable == "agent-browser" || script?.contains("/agent-browser/") == true
+      || script.map({ URL(fileURLWithPath: $0).lastPathComponent }) == "agent-browser"
+    {
       return Match(kind: .agentBrowser, name: "agent-browser", detail: "")
     }
 
@@ -265,15 +248,15 @@ public struct BackgroundProcessClassifier: Sendable {
     return executable == "python3" ? "python" : executable
   }
 
+  /// The script an interpreter is running: its first non-flag argument.
+  private static func script(of process: ProcessSnapshot) -> String? {
+    guard interpreters.contains(process.executableName.lowercased()) else { return nil }
+    return process.arguments.dropFirst().first { !$0.hasPrefix("-") }
+  }
+
   /// Interpreters name the script, not themselves: `perl …/exiftool` reads as `exiftool`.
   private static func leftoverName(of process: ProcessSnapshot) -> String {
-    let executable = process.executableName
-    if interpreters.contains(executable.lowercased()),
-      let script = process.arguments.dropFirst().first(where: { !$0.hasPrefix("-") })
-    {
-      return URL(fileURLWithPath: script).lastPathComponent
-    }
-    return executable
+    script(of: process).map { URL(fileURLWithPath: $0).lastPathComponent } ?? process.executableName
   }
 }
 

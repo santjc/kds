@@ -43,7 +43,9 @@ Opening the menu starts the 1-second usage sampler and an immediate scan, follow
 
 System CPU is a delta between two `host_processor_info` readings, so the sampler primes one reading before publishing a value. Memory used is `active + wired + compressed` pages, matching Activity Monitor's "Memory Used". GPU comes from the `PerformanceStatistics` dictionary of the `IOAccelerator`/`IOGPU` registry entries; a machine that publishes no counter reads as `—` rather than `0%`.
 
-Per-process CPU and RAM come from `proc_pid_rusage`, sampled once per scan alongside `lsof`. CPU is a delta of user plus system time over elapsed time, so it is instantaneous like Activity Monitor's column and can exceed 100% on multiple cores — not `ps`'s `%cpu`, which averages over the whole process lifetime. The previous reading is dropped for any PID that disappears, so a recycled PID cannot inherit a stale baseline.
+Per-process CPU and RAM come from `proc_pid_rusage`, sampled once per scan. CPU is a delta of user plus system time over elapsed time, so it is instantaneous like Activity Monitor's column and can exceed 100% on multiple cores — not `ps`'s `%cpu`, which averages over the whole process lifetime. Those times are Mach absolute-time ticks, converted with `mach_timebase_info`: on Apple Silicon a tick is 125/3 ns, and skipping the conversion reads a pegged core as 2.4%. A baseline is only used if it is under ten seconds old and from the same process start (`ri_proc_start_abstime`), so reopening the panel or a recycled PID reads `—` for one scan instead of a misleading figure.
+
+Each server row sums its listener's process tree, from a `sysctl` snapshot, stopping at any other listener so no process is counted twice; background rows do the same over their own trees.
 
 There is no per-process GPU column. macOS exposes no public per-PID GPU counter, so GPU stays machine-wide, in the gauge only.
 
@@ -58,12 +60,12 @@ Frames are template images (alpha is ink), so the menu bar tints them for light,
 `SysctlProcessTable` reads the current user's processes with `KERN_PROC_UID` and their argv with `KERN_PROCARGS2`, caching argv by PID and start time. `BackgroundProcessClassifier` is a pure function over that table:
 
 1. Chromium helpers (`--type=…`) never match; they count toward their browser's row.
-2. `claude`, `codex` and their npm packages are agent sessions; `agent-browser` is browser automation; Chrome or Chromium with `--headless` or a remote-debugging/automation flag is an automated browser.
+2. `claude`, `codex` and their npm packages are agent sessions; `agent-browser` is browser automation — each matched on the executable or the script an interpreter runs, never on an arbitrary argument; Chrome or Chromium with `--headless` or a remote-debugging/automation flag is an automated browser.
 3. App-bundle and OS executables stop matching here, so an IDE's helpers are not mistaken for agent tools.
 4. Any non-flag argument with `mcp` as a whole word (`qa-mcp`, `mcp-server-fetch`, `@playwright/mcp`) is an MCP server. Flags are skipped, so `--mcp-config` does not make an agent a server.
 5. A process reparented to launchd whose command line points into `.claude/`, `.codex/` or a Conductor workspace is an agent leftover.
 
-A match folds into its top-most same-kind ancestor (`npm exec x-mcp` and the `node` it spawns are one row), and termination signals the folded workers before their launcher. Usage sums the root and every descendant that is not its own row. A row descending from a live agent session is owned by it, and Clean Up skips it; agent sessions themselves always need a confirmation. Kills re-read the table and only signal PIDs whose start time still matches the scan.
+A match folds into its top-most same-kind ancestor (`npm exec x-mcp` and the `node` it spawns are one row), and termination signals the folded workers before their launcher. Usage sums the root and every descendant that is not its own row. A row descending from a live agent session is owned by it. Clean Up only takes detached rows — reparented to launchd, so whatever started them is gone — and never agent sessions, which always need a confirmation. Kills re-read the table and only signal PIDs whose start time still matches the scan.
 
 ## Classification
 

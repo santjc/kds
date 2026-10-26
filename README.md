@@ -15,7 +15,7 @@ KDS is a lightweight, native macOS menu bar app for reclaiming the resources you
 
 - Finds TCP listeners owned by the current user.
 - One row per listener: port, name, CPU%, RAM%, and a kill button.
-- Per-process CPU and RAM come from `proc_pid_rusage`, sampled as a delta, so CPU is instantaneous and can exceed 100% across cores.
+- CPU and RAM are summed over each server's process tree, so a dev server's workers count. They come from `proc_pid_rusage`, sampled as a delta, so CPU is instantaneous and can exceed 100% across cores; it reads `—` until there are two samples.
 - There is no per-process GPU column: macOS publishes no public per-PID GPU counter, so GPU is reported machine-wide only.
 - Opens or copies `localhost` URLs from the row menu.
 - Sends `SIGTERM` to one server or a reviewed Kill All selection.
@@ -25,7 +25,7 @@ KDS is a lightweight, native macOS menu bar app for reclaiming the resources you
 
 - Lists what coding agents and browser automation leave running: headless or automated Chrome (Playwright, Puppeteer), `agent-browser`, MCP servers, Claude Code and Codex sessions, and detached processes started from an agent's worktree.
 - Each row shows how long ago it started (`5m`, `3h`, `2d`, `1w`), its CPU and RAM summed over its process tree, and who owns it: a live agent, a parent, or nobody (detached).
-- Clean Up terminates only what no live agent is using. Agent sessions, and anything they still own, need a confirmation and are never bulk-killed.
+- Clean Up terminates only detached processes — whatever started them is gone. Anything with a live parent is left alone; agent sessions and anything they own need a confirmation and are never bulk-killed.
 
 **Throughout**
 

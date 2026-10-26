@@ -146,3 +146,43 @@ public actor SysctlProcessTable: ProcessTableSource {
     return (path, arguments)
   }
 }
+
+/// Parentage over one process-table snapshot.
+public struct ProcessTree: Sendable {
+  public let byPID: [Int32: ProcessSnapshot]
+  private let children: [Int32: [Int32]]
+
+  public init(_ table: [ProcessSnapshot]) {
+    byPID = Dictionary(table.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
+    var children: [Int32: [Int32]] = [:]
+    for process in table { children[process.parentPID, default: []].append(process.pid) }
+    self.children = children
+  }
+
+  /// Parent, grandparent and so on, stopping before launchd.
+  public func ancestors(of pid: Int32) -> [Int32] {
+    var chain: [Int32] = []
+    var seen: Set<Int32> = [pid]
+    var current = byPID[pid]?.parentPID
+    while let parent = current, parent > 1, seen.insert(parent).inserted {
+      chain.append(parent)
+      current = byPID[parent]?.parentPID
+    }
+    return chain
+  }
+
+  /// `root` and its descendants, sorted, not descending into any PID in `boundaries`:
+  /// those head trees of their own that are counted separately.
+  public func subtree(of root: Int32, stoppingAt boundaries: Set<Int32> = []) -> [Int32] {
+    var result: [Int32] = []
+    var seen: Set<Int32> = [root]
+    var queue = [root]
+    while let pid = queue.popLast() {
+      result.append(pid)
+      for child in children[pid] ?? [] where !boundaries.contains(child) && seen.insert(child).inserted {
+        queue.append(child)
+      }
+    }
+    return result.sorted()
+  }
+}

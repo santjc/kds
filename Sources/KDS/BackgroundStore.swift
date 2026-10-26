@@ -77,16 +77,10 @@ final class BackgroundStore: ObservableObject {
     let rows = classifier.classify(snapshot)
 
     let perPID = await usageSampler.sample(pids: rows.flatMap(\.usagePIDs))
-    var totals: [String: ProcessUsage] = [:]
-    for row in rows {
-      let parts = row.usagePIDs.compactMap { perPID[$0] }
-      guard !parts.isEmpty else { continue }
-      totals[row.id] = ProcessUsage(
-        cpuPercent: parts.map(\.cpuPercent).reduce(0, +),
-        residentBytes: parts.map(\.residentBytes).reduce(0, +),
-        memoryPercent: parts.map(\.memoryPercent).reduce(0, +)
-      )
-    }
+    let totals = Dictionary(
+      uniqueKeysWithValues: rows.compactMap { row in
+        ProcessUsage.total(row.usagePIDs.compactMap { perPID[$0] }).map { (row.id, $0) }
+      })
 
     let liveIDs = Set(rows.map(\.id))
     var names = projectNames.filter { liveIDs.contains($0.key) }

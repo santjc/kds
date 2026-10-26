@@ -86,6 +86,31 @@ let backgroundProcessTests: [TestCase] = [
     try expect(rows[0].name == "exiftool")
     try expect(rows[0].detail == "Claude")
   },
+  TestCase("matches agents and tools by what runs, not by any argument") {
+    let rows = classifier.classify([
+      terminal,
+      process(900, path: "/usr/bin/grep", ["grep", "-r", "agent-browser", "."]),
+      process(901, path: "/usr/bin/less", ["less", "/x/node_modules/@anthropic-ai/claude-code/README.md"]),
+      process(902, path: "/opt/homebrew/bin/node", ["node", "/x/node_modules/@anthropic-ai/claude-code/cli.js"]),
+      process(903, path: "/opt/homebrew/bin/node", ["node", "/x/agent-browser/dist/daemon.js"]),
+    ])
+    try expect(rows.map(\.pid) == [902, 903], "got \(rows.map(\.pid))")
+    try expect(rows[0].kind == .agentSession)
+    try expect(rows[1].kind == .agentBrowser)
+  },
+  TestCase("Clean Up leaves anything with a live parent alone") {
+    let chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    let rows = classifier.classify([
+      terminal,
+      process(1000, path: "/opt/homebrew/bin/node", ["node", "/x/playwright/cli.js", "test"]),
+      process(1001, parent: 1000, path: chrome, [chrome, "--headless"]),
+      process(1002, parent: 1, path: chrome, [chrome, "--headless"]),
+    ])
+    let running = try require(rows.first { $0.pid == 1001 })
+    let abandoned = try require(rows.first { $0.pid == 1002 })
+    try expect(running.ownership == .attached && !running.isKillAllEligible)
+    try expect(abandoned.ownership == .detached && abandoned.isKillAllEligible)
+  },
   TestCase("skips itself, other users and app bundle helpers") {
     let rows = classifier.classify([
       process(999, path: "/x/agent-browser"),
