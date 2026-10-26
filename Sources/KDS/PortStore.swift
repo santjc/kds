@@ -17,6 +17,7 @@ final class PortStore: ObservableObject {
   @Published private(set) var errorMessage: String?
   @Published private(set) var actionErrorMessage: String?
   @Published private(set) var survivorPIDs: Set<Int32> = []
+  /// Summed over each listening process's tree, keyed by the listener's PID.
   @Published private(set) var usage: [Int32: ProcessUsage] = [:]
 
   private let source: any PortSource
@@ -25,6 +26,7 @@ final class PortStore: ObservableObject {
   private let classifier: ProcessClassifier
   private let overrides: EndpointOverrideStore
   private let usageSampler: any ProcessUsageSampling
+  private let processTable: any ProcessTableSource
   private var detailsCache: [Int32: ProcessDetails] = [:]
   private var detailsFingerprints: [Int32: Set<String>] = [:]
   private var survivorPorts: [Int32: Set<UInt16>] = [:]
@@ -58,7 +60,8 @@ final class PortStore: ObservableObject {
       terminator: SystemProcessTerminator(),
       classifier: ProcessClassifier(),
       overrides: EndpointOverrideStore(),
-      usageSampler: RusageProcessUsageSampler()
+      usageSampler: RusageProcessUsageSampler(),
+      processTable: SysctlProcessTable()
     )
   }
 
@@ -68,7 +71,8 @@ final class PortStore: ObservableObject {
     terminator: any ProcessTerminating,
     classifier: ProcessClassifier,
     overrides: EndpointOverrideStore,
-    usageSampler: any ProcessUsageSampling
+    usageSampler: any ProcessUsageSampling,
+    processTable: any ProcessTableSource
   ) {
     self.source = source
     self.inspector = inspector
@@ -76,6 +80,7 @@ final class PortStore: ObservableObject {
     self.classifier = classifier
     self.overrides = overrides
     self.usageSampler = usageSampler
+    self.processTable = processTable
   }
 
   func startVisibleScanning() {
@@ -156,7 +161,15 @@ final class PortStore: ObservableObject {
         )
       }.sorted(by: Self.sortEndpoints)
 
-      usage = await usageSampler.sample(pids: Array(activePIDs))
+      // A dev server's work often happens in children (`next dev` workers, bundlers), so
+      // each listener counts its tree. Another listener inside that tree is its own row.
+      let tree = ProcessTree(await processTable.snapshot())
+      let trees = Dictionary(
+        uniqueKeysWithValues: activePIDs.map {
+          ($0, tree.subtree(of: $0, stoppingAt: activePIDs.subtracting([$0])))
+        })
+      let perPID = await usageSampler.sample(pids: Array(Set(trees.values.joined())))
+      usage = trees.compactMapValues { pids in ProcessUsage.total(pids.compactMap { perPID[$0] }) }
 
       survivorPIDs = Set(
         snapshot.compactMap { endpoint in

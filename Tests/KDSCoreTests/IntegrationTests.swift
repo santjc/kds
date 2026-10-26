@@ -16,8 +16,50 @@ let integrationTests: [TestCase] = [
 
     let own = try require(usage[getpid()], "expected usage for the test process")
     try expect(own.residentBytes > 0)
-    try expect(own.cpuPercent >= 0)
+    try expect((own.cpuPercent ?? 0) >= 0)
     try expect(own.memoryPercent > 0 && own.memoryPercent <= 100)
+  },
+  TestCase("reads a process pegging one core as about 100% CPU") {
+    let busy = Process()
+    busy.executableURL = URL(fileURLWithPath: "/usr/bin/yes")
+    busy.standardOutput = FileHandle.nullDevice
+    try busy.run()
+    defer { busy.terminate() }
+
+    let sampler = RusageProcessUsageSampler()
+    _ = await sampler.sample(pids: [busy.processIdentifier])
+    try await Task.sleep(for: .seconds(1))
+    let usage = try require(await sampler.sample(pids: [busy.processIdentifier])[busy.processIdentifier])
+    // Generous bounds: a loaded CI runner may not give `yes` a whole core.
+    let cpu = try require(usage.cpuPercent, "expected a CPU figure on the second sample")
+    try expect(cpu > 50 && cpu < 150, "read \(cpu)%")
+  },
+  TestCase("counts a busy child against its idle parent's tree") {
+    // `sh` sits idle in `wait` while its `yes` child pegs a core: the dev-server shape.
+    let parent = Process()
+    parent.executableURL = URL(fileURLWithPath: "/bin/sh")
+    parent.arguments = ["-c", "/usr/bin/yes > /dev/null & wait"]
+    try parent.run()
+    defer {
+      kill(-parent.processIdentifier, SIGTERM)
+      parent.terminate()
+    }
+    try await Task.sleep(for: .milliseconds(300))
+
+    let table = SysctlProcessTable()
+    let sampler = RusageProcessUsageSampler()
+    let pids = ProcessTree(await table.snapshot()).subtree(of: parent.processIdentifier)
+    try expect(pids.count == 2, "expected sh and yes, got \(pids)")
+    _ = await sampler.sample(pids: pids)
+    try await Task.sleep(for: .seconds(1))
+    let perPID = await sampler.sample(pids: pids)
+    let total = try require(ProcessUsage.total(pids.compactMap { perPID[$0] }))
+    let parentOnly = perPID[parent.processIdentifier]?.cpuPercent ?? 0
+
+    for pid in pids where pid != parent.processIdentifier { kill(pid, SIGTERM) }
+    let cpu = try require(total.cpuPercent)
+    try expect(parentOnly < 10, "the parent itself is idle")
+    try expect(cpu > 50, "the tree carries the child's load, read \(cpu)%")
   },
   TestCase("reads the real process table, argv included, and finds itself") {
     let table = await SysctlProcessTable().snapshot()
