@@ -30,9 +30,10 @@ let integrationTests: [TestCase] = [
     _ = await sampler.sample(pids: [busy.processIdentifier])
     try await Task.sleep(for: .seconds(1))
     let usage = try require(await sampler.sample(pids: [busy.processIdentifier])[busy.processIdentifier])
-    // Generous bounds: a loaded CI runner may not give `yes` a whole core.
+    // A loaded machine may give `yes` well under a core, so the floor is low. It still
+    // catches unconverted Mach ticks, which read a pegged core as 2.4%.
     let cpu = try require(usage.cpuPercent, "expected a CPU figure on the second sample")
-    try expect(cpu > 50 && cpu < 150, "read \(cpu)%")
+    try expect(cpu > 10 && cpu < 150, "read \(cpu)%")
   },
   TestCase("counts a busy child against its idle parent's tree") {
     // `sh` sits idle in `wait` while its `yes` child pegs a core: the dev-server shape.
@@ -58,8 +59,9 @@ let integrationTests: [TestCase] = [
 
     for pid in pids where pid != parent.processIdentifier { kill(pid, SIGTERM) }
     let cpu = try require(total.cpuPercent)
-    try expect(parentOnly < 10, "the parent itself is idle")
-    try expect(cpu > 50, "the tree carries the child's load, read \(cpu)%")
+    // Same low floor as above: under load `yes` may not get a whole core.
+    try expect(parentOnly < 5, "the parent itself is idle")
+    try expect(cpu > parentOnly + 10, "the tree carries the child's load, read \(cpu)%")
   },
   TestCase("reads the real process table, argv included, and finds itself") {
     let table = await SysctlProcessTable().snapshot()
